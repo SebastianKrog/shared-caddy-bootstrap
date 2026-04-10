@@ -1,0 +1,68 @@
+name: Release shared-caddy-bootstrap tarball
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate shell scripts
+        run: |
+          bash -n bin/bootstrap.sh
+          bash -n bin/teardown.sh
+          bash -n lib/common.sh
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          short_sha="$(git rev-parse --short HEAD)"
+          version="main-${short_sha}"
+          archive_dir="dist"
+          archive_name="shared-caddy-bootstrap-${version}.tar.gz"
+
+          mkdir -p "$archive_dir"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
+          echo "archive_path=$archive_dir/$archive_name" >> "$GITHUB_OUTPUT"
+
+      - name: Build tarball
+        run: |
+          tar \
+            --exclude-vcs \
+            --transform 's,^,shared-caddy-bootstrap/,' \
+            -czf "${{ steps.meta.outputs.archive_path }}" \
+            bin \
+            caddy \
+            lib \
+            README.md \
+            LICENSE
+
+      - name: Create or update moving release tag
+        run: |
+          git tag -f "${{ steps.meta.outputs.version }}"
+          git push origin "refs/tags/${{ steps.meta.outputs.version }}" --force
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.version }}
+          name: ${{ steps.meta.outputs.version }}
+          body: |
+            Release tarball for shared-caddy-bootstrap built from main.
+
+            Commit: ${{ github.sha }}
+          files: ${{ steps.meta.outputs.archive_path }}
+          make_latest: false
